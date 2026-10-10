@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydrostatic plate lab</title>
+<style>
+:root{
+  --paper:#EDF1EE; --panel:#F8FAF8; --ink:#12262C; --muted:#56676C; --line:#C6D1CD;
+  --force:#C93F27; --steel:#C3CDD1; --focus:#1F6F8B;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);line-height:1.45}
+header{padding:0 0 12px}
+h1{margin:0;font-size:1.55rem;font-weight:650}
+header p{margin:4px 0 0;color:var(--muted);max-width:60ch}
+html,body{height:100%}
+body{overflow:hidden}
+.app{display:grid;grid-template-columns:minmax(340px,38%) minmax(0,1fr);height:100vh;height:100dvh}
+.left{overflow-y:auto;padding:16px 10px 16px 20px}
+.stack{overflow-y:auto;padding:16px 20px 24px 10px}
+@media (max-width:900px){body{overflow:auto}.app{display:block;height:auto}.left,.stack{overflow:visible;padding:12px}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+h2{margin:0 0 8px;font-size:1rem;font-weight:650}
+canvas{display:block;width:100%;border-radius:6px;background:#F2F6F4}
+#vMain{height:clamp(400px,70vh,760px);background:#F6F9F8}
+#diagram,#face{height:290px}
+.legend{margin:8px 0 0;font-size:.85rem;color:var(--muted)}
+.dot,.dia{display:inline-block;width:11px;height:11px;margin:0 4px -1px 8px;border:2px solid var(--ink);background:#fff;border-radius:50%}
+.dia{background:var(--force);border-color:var(--force);border-radius:0;transform:rotate(45deg) scale(.8)}
+.views2{display:grid;gap:14px;margin-top:14px}
+.stack{display:grid;gap:20px;align-content:start;min-width:0}
+.seg{display:flex;gap:6px;margin:0 0 10px}
+.seg button{background:#fff;color:var(--ink);border-color:var(--line);padding:6px 16px}
+.seg button[aria-pressed=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.controls{display:grid;gap:8px}
+.row{display:grid;grid-template-columns:150px 1fr 76px;gap:10px;align-items:center}
+.row[hidden]{display:none}
+.row label,.pair label{font-size:.9rem}
+.pair{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center}
+.pair .inline{display:flex;gap:8px;min-width:0}
+.pair .inline select{flex:1 1 62%}
+.pair .inline input{flex:0 0 34%;width:auto}
+select,input[type=number]{font:inherit;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--ink);min-width:0;width:100%}
+input[type=range]{width:100%;accent-color:#1F6F8B}
+button{font:inherit;padding:7px 14px;border:1px solid var(--ink);border-radius:6px;background:var(--ink);color:#fff;cursor:pointer}
+#sweep[aria-pressed=true]{background:var(--force);border-color:var(--force)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.hint{font-size:.82rem;color:var(--muted);margin:0}
+.results{display:grid;grid-template-columns:1fr auto;gap:5px 14px;margin:0 0 4px;font-size:.93rem}
+.results dt{color:var(--muted)}
+.results dd{margin:0;font-variant-numeric:tabular-nums;text-align:right;font-weight:600}
+.results .big{font-size:1.5rem;color:var(--force)}
+.notice{margin:0 0 8px;padding:8px 10px;border-radius:6px;background:#FBE9E4;color:#7B2514;font-size:.9rem}
+.views{display:grid;gap:14px;margin-top:14px}
+.note{margin:10px 0 0;font-size:.8rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="left">
+<header>
+  <h1>Hydrostatic plate lab</h1>
+  <p>Place a flat plate in a fluid, tilt and spin it, and see the pressure, the total force and where it acts.</p>
+</header>
+<section aria-label="Inputs">
+    <h2>Inputs</h2>
+    <div class="controls" id="controls">
+      <div class="pair"><label for="shape">Shape</label>
+        <select id="shape"><option value="rect">Rectangle</option><option value="circle">Circle</option><option value="tri">Right triangle</option></select></div>
+      <div class="pair"><label for="fluid">Fluid</label>
+        <div class="inline"><select id="fluid"></select><input id="density" type="number" min="1" max="30000" step="10" aria-label="Density in kilograms per cubic metre"></div></div>
+      <div class="pair"><label for="g">Gravity (m/s²)</label><input id="g" type="number" min="0.1" max="30" step="0.01"></div>
+      <div id="sliders" style="display:grid;gap:8px"></div>
+      <p class="hint">Spin 0° puts the length along the slope; spin 90° puts the width along it. A negative depth lifts the top edge above the water.</p>
+      <div><button id="sweep" type="button" aria-pressed="false">Animate depth</button></div>
+    </div>
+  </section>
+</aside>
+<div class="stack">
+  <section aria-label="View of the plate">
+    <div class="seg" role="group" aria-label="Choose view">
+      <button type="button" data-view="side" aria-pressed="true">Side</button>
+      <button type="button" data-view="front" aria-pressed="false">Front</button>
+      <button type="button" data-view="top" aria-pressed="false">Top</button>
+    </div>
+    <canvas id="vMain" role="img" aria-label="View of the plate with pressure arrows"></canvas>
+    <p class="legend" id="viewNote"></p>
+    <p class="legend">Arrows show pressure on the marked face. <span class="dot"></span>centroid <span class="dia"></span>center of pressure. ⊗ is an arrow pointing away from you, ⊙ points toward you.</p>
+  </section>
+  <section aria-label="Results">
+    <h2>Results</h2>
+    <div id="notice"></div>
+    <dl class="results" id="results"></dl>
+    <div class="views2">
+      <div><h2>Pressure along the plate</h2><canvas id="diagram" role="img" aria-label="Pressure diagram along the plate"></canvas></div>
+      <div><h2>Plate face</h2><canvas id="face" role="img" aria-label="Plate face coloured by pressure"></canvas>
+        <p class="legend">Light to dark means low to high pressure. Grey is above the water.</p></div>
+    </div>
+    <p class="note">Gauge pressure (atmosphere left out). Force is the push on one face of the plate, perpendicular to it.</p>
+  </section>
+  </div>
+</div>
+<script>
+// ---- physics (same method as hydrostatic_plate/core.py) ----
+function rot(pts, spin){const a=spin*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return pts.map(([u,v])=>[u*c-v*s,u*s+v*c]);}
+function polygonShape(pts){
+  return {
+    sRange(spin){const r=rot(pts,spin).map(q=>q[0]);return [Math.min(...r),Math.max(...r)];},
+    chords(sArr,spin){
+      const p=rot(pts,spin),n=p.length,lo=new Float64Array(sArr.length),hi=new Float64Array(sArr.length);
+      for(let i=0;i<sArr.length;i++){
+        let a=Infinity,b=-Infinity;
+        for(let e=0;e<n;e++){
+          const [s0,t0]=p[e],[s1,t1]=p[(e+1)%n];
+          if(s0===s1)continue;
+          const f=(sArr[i]-s0)/(s1-s0);
+          if(f<0||f>1)continue;
+          const t=t0+f*(t1-t0);
+          if(t<a)a=t; if(t>b)b=t;
+        }
+        if(!isFinite(a)){a=0;b=0;}
+        lo[i]=a;hi[i]=b;
+      }
+      return [lo,hi];
+    }
+  };
+}
+function circleShape(R){
+  return {
+    sRange(){return [-R,R];},
+    chords(sArr){const lo=new Float64Array(sArr.length),hi=new Float64Array(sArr.length);
+      for(let i=0;i<sArr.length;i++){const h=Math.sqrt(Math.max(R*R-sArr[i]*sArr[i],0));lo[i]=-h;hi[i]=h;}
+      return [lo,hi];}
+  };
+}
+function makeShape(kind,L,W,R){
+  if(kind==='circle')return circleShape(R);
+  if(kind==='rect')return polygonShape([[-L/2,-W/2],[L/2,-W/2],[L/2,W/2],[-L/2,W/2]]);
+  return polygonShape([[-L/3,-W/3],[2*L/3,-W/3],[-L/3,2*W/3]]);
+}
+function analyze(shape,depth,tiltDeg,spinDeg,rho,g,n){
+  n=n||800;
+  const [sLo,sHi]=shape.sRange(spinDeg),E=sHi-sLo,ds=E/n;
+  const sArr=new Float64Array(n);for(let i=0;i<n;i++)sArr[i]=sLo+(i+0.5)*ds;
+  const [t1,t2]=shape.chords(sArr,spinDeg);
+  const sinT=Math.sin(tiltDeg*Math.PI/180),cosT=Math.cos(tiltDeg*Math.PI/180);
+  const pos=new Float64Array(n),dep=new Float64Array(n),p=new Float64Array(n);
+  let A=0,wet=0,mc=0,tc=0,F=0,mcp=0,tcp=0;
+  for(let i=0;i<n;i++){
+    pos[i]=sArr[i]-sLo; dep[i]=depth+pos[i]*sinT; p[i]=rho*g*Math.max(dep[i],0);
+    const dA=(t2[i]-t1[i])*ds,tm=(t1[i]+t2[i])/2;
+    A+=dA; mc+=pos[i]*dA; tc+=tm*dA; if(dep[i]>0)wet+=dA;
+    F+=p[i]*dA; mcp+=pos[i]*p[i]*dA; tcp+=tm*p[i]*dA;
+  }
+  const posC=mc/A,tC=tc/A,deepest=depth+E*sinT,wetOn=F>0;
+  const posCp=wetOn?mcp/F:null,tCp=wetOn?tcp/F:null;
+  return {E,ds,n,t1,t2,pos,dep,p,area:A,wetArea:wet,posC,tC,posCp,tCp,rhog:rho*g,
+    centroidDepth:depth+posC*sinT,pmax:rho*g*Math.max(deepest,0),force:F,
+    fh:F*sinT,fv:F*cosT,cpDepth:wetOn?depth+posCp*sinT:null,
+    cpBelow:wetOn?posCp-posC:null,cpSide:wetOn?tCp-tC:null,wetOn};
+}
+// ---- end physics ----
+
+const $=id=>document.getElementById(id);
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FLUIDS={Water:1000,Seawater:1025,Oil:900,Mercury:13600};
+const INK='#12262C',FORCE='#C93F27';
+const state={shape:'rect',density:1000,g:9.81,depth:1.5,tilt:60,spin:0,len:2,wid:1.2,rad:0.8};
+const shown={...state};
+const SL=[
+  {k:'depth',label:'Depth of top edge (m)',min:-5,max:10,step:0.1},
+  {k:'tilt',label:'Tilt from horizontal (°)',min:0,max:180,step:1},
+  {k:'spin',label:'Spin in plane (°)',min:0,max:360,step:1},
+  {k:'len',label:'Length (m)',min:0.2,max:6,step:0.1,shapes:['rect','tri']},
+  {k:'wid',label:'Width (m)',min:0.2,max:6,step:0.1,shapes:['rect','tri']},
+  {k:'rad',label:'Radius (m)',min:0.1,max:3,step:0.1,shapes:['circle']}
+];
+let sweeping=false;
+
+// ---- controls ----
+const rowEls={};
+SL.forEach(d=>{
+  const row=document.createElement('div');row.className='row';
+  row.innerHTML=`<label for="r_${d.k}">${d.label}</label><input type="range" id="r_${d.k}" min="${d.min}" max="${d.max}" step="${d.step}"><input type="number" id="n_${d.k}" min="${d.min}" max="${d.max}" step="${d.step}" aria-label="${d.label}">`;
+  $('sliders').appendChild(row);rowEls[d.k]=row;
+  const r=row.querySelector('[type=range]'),n=row.querySelector('[type=number]');
+  const set=v=>{if(isNaN(v))return;v=Math.min(d.max,Math.max(d.min,v));state[d.k]=v;r.value=v;n.value=v;if(d.k==='depth')stopSweep();};
+  r.addEventListener('input',()=>set(+r.value));
+  n.addEventListener('change',()=>set(+n.value));
+  d.sync=()=>{r.value=state[d.k];n.value=+(+state[d.k]).toFixed(2);};
+  d.sync();
+});
+function updateRows(){SL.forEach(d=>{rowEls[d.k].hidden=!!(d.shapes&&!d.shapes.includes(state.shape));});}
+$('shape').addEventListener('change',e=>{state.shape=e.target.value;updateRows();});
+Object.keys(FLUIDS).forEach(k=>{const o=document.createElement('option');o.value=FLUIDS[k];o.textContent=`${k} (${FLUIDS[k]})`;$('fluid').appendChild(o);});
+const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom';$('fluid').appendChild(custom);
+$('fluid').addEventListener('change',e=>{if(e.target.value!=='custom'){state.density=+e.target.value;$('density').value=state.density;}});
+$('density').addEventListener('change',e=>{const v=+e.target.value;if(v>0){state.density=v;const m=Object.values(FLUIDS).includes(v);$('fluid').value=m?String(v):'custom';}});
+$('g').addEventListener('change',e=>{const v=+e.target.value;if(v>0)state.g=v;});
+$('density').value=state.density;$('g').value=state.g;$('fluid').value='1000';
+updateRows();
+function stopSweep(){sweeping=false;$('sweep').setAttribute('aria-pressed','false');$('sweep').textContent='Animate depth';}
+$('sweep').addEventListener('click',()=>{
+  sweeping=!sweeping;$('sweep').setAttribute('aria-pressed',String(sweeping));
+  $('sweep').textContent=sweeping?'Stop animation':'Animate depth';
+});
+
+// ---- drawing helpers ----
+function fit(cv){
+  const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1;
+  const w=Math.round(r.width*d),h=Math.round(r.height*d);
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+  const c=cv.getContext('2d');c.setTransform(d,0,0,d,0,0);return [c,r.width,r.height];
+}
+function arrow(c,x1,y1,x2,y2,col,lw,head){
+  const a=Math.atan2(y2-y1,x2-x1),h=head||7;
+  c.strokeStyle=col;c.fillStyle=col;c.lineWidth=lw||1.5;
+  c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();
+  c.beginPath();c.moveTo(x2,y2);c.lineTo(x2-h*Math.cos(a-0.4),y2-h*Math.sin(a-0.4));
+  c.lineTo(x2-h*Math.cos(a+0.4),y2-h*Math.sin(a+0.4));c.closePath();c.fill();
+}
+function marks(c,cx,cy,kx,ky){
+  c.fillStyle='#fff';c.strokeStyle=INK;c.lineWidth=2;
+  c.beginPath();c.arc(cx,cy,5,0,6.2832);c.fill();c.stroke();
+  if(kx==null)return;
+  c.fillStyle=FORCE;c.strokeStyle='#fff';c.lineWidth=1.5;
+  c.beginPath();c.moveTo(kx,ky-7);c.lineTo(kx+7,ky);c.lineTo(kx,ky+7);c.lineTo(kx-7,ky);c.closePath();c.fill();c.stroke();
+}
+
+// ---- 3D scene and the three views ----
+// World axes: X = downhill direction on the ground, Y = across the slope, Z = up (water surface at Z = 0).
+const VIEWS={
+  side:{id:'vSide',h:p=>p[0],v:p=>p[2],vd:[0,1,0],hr:b=>b.x,vr:b=>b.z,z:true},
+  front:{id:'vFront',h:p=>p[1],v:p=>p[2],vd:[-1,0,0],hr:b=>b.y,vr:b=>b.z,z:true},
+  top:{id:'vTop',h:p=>p[0],v:p=>p[1],vd:[0,0,-1],hr:b=>b.x,vr:b=>b.y,z:false}
+};
+function buildScene(P,r){
+  const th=P.tilt*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th),d=P.depth,E=r.E;
+  const nrm=[sn,0,cs],W3=(q,t)=>[q*cs,t,-(d+q*sn)];
+  let tmin=Infinity,tmax=-Infinity;
+  for(let i=0;i<r.n;i++){if(r.t1[i]<tmin)tmin=r.t1[i];if(r.t2[i]>tmax)tmax=r.t2[i];}
+  const Wt=Math.max(tmax-tmin,1e-6),Lc=Math.max(E,Wt,1.2);
+  const ref=Math.max(d+E*sn,0.8)+0.7,Lmax=0.6*Lc;
+  let posW=E+1;if(sn>1e-9)posW=Math.max(0,-d/sn);else if(d>0)posW=0;
+  const step=Math.max(1,Math.floor(r.n/60)),idx=[];
+  for(let i=0;i<r.n;i+=step)idx.push(i);
+  if(idx[idx.length-1]!==r.n-1)idx.push(r.n-1);
+  const outline=idx.map(i=>W3(r.pos[i],r.t1[i])).concat(idx.slice().reverse().map(i=>W3(r.pos[i],r.t2[i])));
+  // pressure arrows: 10 columns across the width, 11 rows along the wet part of the slope
+  const arrows=[],cols=[];
+  if(posW<E){
+    for(let j=0;j<10;j++){
+      const t=tmin+(j+0.5)*Wt/10,col=[];
+      for(let k=0;k<=10;k++){
+        const q=posW+(E-posW)*k/10,i=Math.min(r.n-1,Math.max(0,Math.floor(q/r.ds)));
+        if(t<r.t1[i]-1e-9||t>r.t2[i]+1e-9)continue;
+        const dep=Math.max(d+q*sn,0),len=Lmax*dep/ref,P0=W3(q,t);
+        const a={P:P0,tail:[P0[0]+nrm[0]*len,P0[1],P0[2]+nrm[2]*len],dep,len};
+        arrows.push(a);col.push(a);
+      }
+      cols.push(col);
+    }
+  }
+  const cen=W3(r.posC,r.tC),cp=r.wetOn?W3(r.posCp,r.tCp):null;
+  let res=null;
+  if(r.wetOn){res={P:cp,tail:[cp[0]+nrm[0]*0.55*Lc,cp[1],cp[2]+nrm[2]*0.55*Lc]};}
+  let wl=null;
+  if(posW>0&&posW<E){const i=Math.min(r.n-1,Math.floor(posW/r.ds));wl=[W3(posW,r.t1[i]),W3(posW,r.t2[i])];}
+  const pts=outline.concat(arrows.map(a=>a.tail));if(res)pts.push(res.tail);
+  const b={x:[Infinity,-Infinity],y:[Infinity,-Infinity],z:[Infinity,-Infinity]};
+  pts.forEach(p=>['x','y','z'].forEach((key,k)=>{if(p[k]<b[key][0])b[key][0]=p[k];if(p[k]>b[key][1])b[key][1]=p[k];}));
+  b.z=[Math.min(b.z[0],0)-0.4,Math.max(b.z[1],0)+0.4];
+  return {nrm,W3,outline,arrows,cols,res,cen,cp,wl,b,ref,d,tmid0:(r.t1[0]+r.t2[0])/2};
+}
+function arrow3(c,a,b,col,lw,head){
+  arrow(c,a[0],a[1],b[0],b[1],'rgba(8,28,38,.5)',lw+2.5,head+1.5);
+  arrow(c,a[0],a[1],b[0],b[1],col,lw,head);
+}
+function glyph(c,x,y,rad,away,col){
+  c.lineWidth=3.5;c.strokeStyle='rgba(8,28,38,.5)';c.beginPath();c.arc(x,y,rad,0,6.2832);c.stroke();
+  c.lineWidth=1.6;c.strokeStyle=col;c.beginPath();c.arc(x,y,rad,0,6.2832);c.stroke();
+  if(away){const k=rad*0.6;c.beginPath();c.moveTo(x-k,y-k);c.lineTo(x+k,y+k);c.moveTo(x+k,y-k);c.lineTo(x-k,y+k);c.stroke();}
+  else{c.fillStyle=col;c.beginPath();c.arc(x,y,rad*0.32,0,6.2832);c.fill();}
+}
+let curView='side';
+const NOTES={
+  side:"Looking along the plate's width. The plate is a thin strip when its width points along your line of sight.",
+  front:"Looking along the slope, at the loaded face. Arrows sit at every tenth of the width.",
+  top:"Looking straight down at the water surface."
+};
+function drawViews(P,r,T){
+  const S=buildScene(P,r),[c,W,H]=fit($('vMain'));
+  let sc=Infinity;   // one scale for all three views, so sizes match when you switch
+  Object.values(VIEWS).forEach(V=>{
+    const hr=V.hr(S.b),vr=V.vr(S.b),left=V.z?62:14;
+    sc=Math.min(sc,(W-left-14)/Math.max(hr[1]-hr[0],1.5),(H-24)/Math.max(vr[1]-vr[0],1));
+  });
+  drawView(VIEWS[curView],[c,W,H],S,sc,T);
+}
+document.querySelectorAll('.seg button').forEach(btn=>btn.addEventListener('click',()=>{
+  curView=btn.dataset.view;
+  document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x===btn)));
+  $('viewNote').textContent=NOTES[curView];
+}));
+$('viewNote').textContent=NOTES.side;
+function drawView(V,[c,W,H],S,sc,T){
+  c.clearRect(0,0,W,H);
+  const hr=V.hr(S.b),vr=V.vr(S.b),left=V.z?62:14;
+  const ox=left+(W-left-14)/2-((hr[0]+hr[1])/2)*sc;
+  const sx=h=>ox+h*sc;
+  const sy=V.z?(v=>10+(vr[1]-v)*sc):(v=>H/2-(v-(vr[0]+vr[1])/2)*sc);
+  const pr=p=>[sx(V.h(p)),sy(V.v(p))];
+  const ys=sy(0);
+  c.font='12px system-ui,sans-serif';c.textBaseline='middle';
+  if(V.z){
+    const gr=c.createLinearGradient(0,ys,0,H);gr.addColorStop(0,'#74B8C6');gr.addColorStop(1,'#1D4F69');
+    c.fillStyle=gr;c.beginPath();c.moveTo(0,H);c.lineTo(0,ys);
+    for(let x=0;x<=W;x+=6)c.lineTo(x,ys+(reduce?0:Math.sin(x*0.03+T*1.6)*1.8));
+    c.lineTo(W,H);c.closePath();c.fill();
+    const step=(vr[1]-vr[0])>12?2:1;
+    for(let dz=Math.ceil(-vr[1]/step)*step;dz<-vr[0];dz+=step){
+      const y=sy(-dz);c.strokeStyle=dz>=0?'rgba(255,255,255,.7)':'rgba(18,38,44,.5)';c.lineWidth=1;
+      c.beginPath();c.moveTo(8,y);c.lineTo(18,y);c.stroke();
+      if(dz===0){c.fillStyle=INK;c.fillText('surface',24,y-10);}
+      else{c.fillStyle=dz>0?'#EAF4F7':INK;c.fillText(String(dz),24,y);}
+    }
+    if(Math.abs(S.d)>0.01){
+      const P0=S.W3(0,S.tmid0),a=pr([P0[0],P0[1],0]),b=pr(P0);
+      c.setLineDash([4,4]);c.strokeStyle=INK;c.lineWidth=1.2;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();c.setLineDash([]);
+      c.fillStyle=S.d>0?'#EAF4F7':INK;c.fillText('d = '+S.d.toFixed(1)+' m',a[0]+8,(a[1]+b[1])/2);
+    }
+  }else{c.fillStyle='#4A93A8';c.fillRect(0,0,W,H);}
+  // plate
+  const o=S.outline.map(pr);let A=0,Lp=0;
+  for(let i=0;i<o.length;i++){const p=o[i],q=o[(i+1)%o.length];A+=p[0]*q[1]-q[0]*p[1];Lp+=Math.hypot(q[0]-p[0],q[1]-p[1]);}
+  c.lineJoin='round';c.beginPath();o.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));c.closePath();
+  if(Math.abs(A)/Math.max(Lp,1e-6)<1.5){c.strokeStyle='#2B3A40';c.lineWidth=10;c.stroke();c.strokeStyle='#C3CDD1';c.lineWidth=6;c.stroke();}
+  else{c.fillStyle='rgba(195,205,209,.93)';c.fill();c.strokeStyle='#2B3A40';c.lineWidth=2;c.stroke();}
+  if(!V.z&&S.wl){const a=pr(S.wl[0]),b=pr(S.wl[1]);
+    c.setLineDash([5,4]);c.strokeStyle='rgba(8,28,38,.6)';c.lineWidth=3.5;c.beginPath();c.moveTo(a[0],a[1]);c.lineTo(b[0],b[1]);c.stroke();
+    c.strokeStyle='#fff';c.lineWidth=1.6;c.stroke();c.setLineDash([]);}
+  // pressure arrows and the envelope through their tails
+  const away=-(S.nrm[0]*V.vd[0]+S.nrm[1]*V.vd[1]+S.nrm[2]*V.vd[2])>0;
+  c.strokeStyle='rgba(255,255,255,.75)';c.lineWidth=1.2;
+  S.cols.forEach(col=>{if(col.length<2)return;c.beginPath();col.forEach((a,i)=>{const t=pr(a.tail);i?c.lineTo(t[0],t[1]):c.moveTo(t[0],t[1]);});c.stroke();});
+  S.arrows.forEach(a=>{
+    if(a.len<1e-6)return;
+    const h=pr(a.P),t=pr(a.tail);
+    if(Math.hypot(h[0]-t[0],h[1]-t[1])<5)glyph(c,h[0],h[1],2.5+4.5*a.dep/S.ref,away,'#fff');
+    else arrow3(c,t,h,'#fff',1.5,6);
+  });
+  if(S.res){const h=pr(S.res.P),t=pr(S.res.tail);
+    if(Math.hypot(h[0]-t[0],h[1]-t[1])<6)glyph(c,h[0],h[1],11,away,FORCE);
+    else arrow3(c,t,h,FORCE,3.5,10);}
+  const cm=pr(S.cen),kp=S.cp?pr(S.cp):null;
+  marks(c,cm[0],cm[1],kp?kp[0]:null,kp?kp[1]:null);
+}
+
+// ---- pressure diagram ----
+function drawDiagram(P,r){
+  const [c,W,H]=fit($('diagram'));c.clearRect(0,0,W,H);
+  const ax=40,mt=22,mb=18,pw=W-ax-24,ph=H-mt-mb,yOf=q=>mt+q/r.E*ph;
+  c.font='12px system-ui,sans-serif';c.fillStyle='#56676C';c.textBaseline='middle';
+  c.fillText('top',4,yOf(0));c.fillText('bottom',4,yOf(r.E));
+  const sn=Math.sin(P.tilt*Math.PI/180);
+  let posW=r.E+1;if(sn>1e-9)posW=Math.max(0,-P.depth/sn);else if(P.depth>0)posW=0;
+  if(r.wetOn&&r.pmax>0){
+    const k=pw*0.82/r.pmax,N=40,pts=[];
+    for(let i=0;i<=N;i++){const q=posW+(r.E-posW)*i/N;pts.push([q,r.rhog*Math.max(P.depth+q*sn,0)]);}
+    c.fillStyle='rgba(60,140,165,.35)';c.strokeStyle='#1D6C86';c.lineWidth=2;
+    c.beginPath();c.moveTo(ax,yOf(posW));pts.forEach(([q,p])=>c.lineTo(ax+p*k,yOf(q)));c.lineTo(ax,yOf(r.E));c.closePath();c.fill();c.stroke();
+    for(let i=1;i<=8;i++){const q=posW+(r.E-posW)*i/8,p=r.rhog*Math.max(P.depth+q*sn,0);
+      if(p*k>6)arrow(c,ax+p*k,yOf(q),ax+2,yOf(q),'rgba(29,108,134,.8)',1.2,5);}
+    if(posW>0){c.setLineDash([4,4]);c.strokeStyle=INK;c.lineWidth=1;c.beginPath();c.moveTo(ax,yOf(posW));c.lineTo(ax+pw,yOf(posW));c.stroke();c.setLineDash([]);
+      c.fillStyle=INK;c.fillText('water surface',ax+pw-82,yOf(posW)-9);}
+    arrow(c,ax+pw,yOf(r.posCp),ax+4,yOf(r.posCp),FORCE,3.5,10);
+    c.fillStyle=FORCE;c.fillText((r.force/1000).toFixed(2)+' kN',ax+pw-64,yOf(r.posCp)-11);
+    c.fillStyle='#56676C';c.fillText('max '+(r.pmax/1000).toFixed(1)+' kPa',ax+6,mt-10);
+  }
+  c.strokeStyle=INK;c.lineWidth=4;c.beginPath();c.moveTo(ax,yOf(0));c.lineTo(ax,yOf(r.E));c.stroke();
+  marks(c,ax,yOf(r.posC),r.wetOn?ax:null,r.wetOn?yOf(r.posCp):null);
+}
+
+// ---- plate face ----
+function lerp(a,b,t){return a+(b-a)*t;}
+function drawFront(P,r){
+  const [c,W,H]=fit($('face'));c.clearRect(0,0,W,H);
+  let tmin=Infinity,tmax=-Infinity;for(let i=0;i<r.n;i++){if(r.t1[i]<tmin)tmin=r.t1[i];if(r.t2[i]>tmax)tmax=r.t2[i];}
+  const pad=26,sc=Math.min((W-2*pad)/Math.max(tmax-tmin,1e-6),(H-2*pad)/Math.max(r.E,1e-6));
+  const ox=W/2-((tmin+tmax)/2)*sc,oy=(H-r.E*sc)/2;
+  for(let i=0;i<r.n;i++){
+    let col;
+    if(r.dep[i]<=0)col='#DDE3E1';
+    else{const f=r.pmax>0?r.p[i]/r.pmax:0;col=`rgb(${lerp(196,14,f)|0},${lerp(228,58,f)|0},${lerp(236,85,f)|0})`;}
+    c.fillStyle=col;
+    c.fillRect(ox+r.t1[i]*sc,oy+(r.pos[i]-r.ds/2)*sc,(r.t2[i]-r.t1[i])*sc,r.ds*sc+0.7);
+  }
+  c.font='12px system-ui,sans-serif';c.fillStyle='#56676C';c.textBaseline='middle';
+  c.fillText('downhill',6,12);arrow(c,30,22,30,46,'#56676C',1.2,5);
+  marks(c,ox+r.tC*sc,oy+r.posC*sc,r.wetOn?ox+r.tCp*sc:null,r.wetOn?oy+r.posCp*sc:null);
+}
+
+// ---- results ----
+const f=(x,dp)=>(Math.abs(x)<5e-9?0:x).toFixed(dp==null?2:dp);
+function drawResults(P,r){
+  $('notice').innerHTML=r.wetOn?'':'<p class="notice">The plate is above the water, so pressure and force are zero.</p>';
+  const rows=[['Total force',`<span class="big">${f(r.force/1000)} kN</span>`],
+    ['Horizontal component',f(r.fh/1000)+' kN'],
+    ['Vertical component',f(Math.abs(r.fv)/1000)+' kN '+(r.fv>=0?'down':'up')],
+    ['Maximum pressure',f(r.pmax/1000)+' kPa'],
+    ['Plate area (wetted)',f(r.area)+' m² ('+f(r.wetArea)+' m²)'],
+    ['Centroid depth',f(r.centroidDepth)+' m'],
+    ['Center of pressure depth',r.wetOn?f(r.cpDepth)+' m':'none'],
+    ['Center of pressure below centroid',r.wetOn?f(r.cpBelow,3)+' m along plate':'none'],
+    ['Sideways offset',r.wetOn?f(r.cpSide,3)+' m':'none']];
+  $('results').innerHTML=rows.map(([a,b])=>`<dt>${a}</dt><dd>${b}</dd>`).join('');
+}
+
+// ---- main loop ----
+let T=0,last=performance.now();
+function frame(now){
+  T+=Math.min((now-last)/1000,0.1);last=now;
+  if(sweeping){state.depth=+(2.5+3.5*Math.sin(T*0.7)).toFixed(2);SL[0].sync();}
+  for(const k of ['depth','tilt','spin','len','wid','rad']){
+    const diff=state[k]-shown[k];
+    shown[k]=(reduce||Math.abs(diff)<1e-4)?state[k]:shown[k]+diff*0.2;
+  }
+  const P=shown;
+  const r=analyze(makeShape(state.shape,P.len,P.wid,P.rad),P.depth,P.tilt,P.spin,state.density,state.g);
+  drawViews(P,r,T);drawDiagram(P,r);drawFront(P,r);drawResults(P,r);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
